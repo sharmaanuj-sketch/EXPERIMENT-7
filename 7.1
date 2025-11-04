@@ -1,0 +1,72 @@
+// ---------- BACKEND (Express API) ----------
+// File: server.js
+// To run backend: 
+// 1. npm init -y
+// 2. npm install express cors
+// 3. node server.js
+
+const express = require('express');
+const cors = require('cors');
+const app = express();
+const PORT = 5000;
+app.use(cors());
+
+const products = [
+  { id: 1, name: 'Laptop', price: 75000 },
+  { id: 2, name: 'Smartphone', price: 30000 },
+  { id: 3, name: 'Headphones', price: 2500 }
+];
+
+app.get('/api/products', (req, res) => {
+  res.json(products);
+});
+
+app.listen(PORT, () => console.log(`✅ Express API running at http://localhost:${PORT}`));
+
+
+// ---------- FRONTEND (React App) ----------
+// File: App.js
+// To run frontend:
+// 1. npx create-react-app react-frontend
+// 2. cd react-frontend
+// 3. npm install axios
+// 4. Replace src/App.js with below code
+// 5. npm start
+
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+
+function App() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    axios.get('http://localhost:5000/api/products')
+      .then(res => {
+        setProducts(res.data);
+        setLoading(false);
+      })
+      .catch(err => {
+        setError('Failed to fetch products');
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return <h2>Loading...</h2>;
+  if (error) return <h2 style={{ color: 'red' }}>{error}</h2>;
+
+  return (
+    <div style={{ padding: '20px', fontFamily: 'Arial' }}>
+      <h1>🛍️ Product Catalog</h1>
+      {products.map(p => (
+        <div key={p.id} style={{ border: '1px solid #ddd', margin: '10px', padding: '10px', borderRadius: '8px' }}>
+          <h3>{p.name}</h3>
+          <p>Price: ₹{p.price}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default App;
