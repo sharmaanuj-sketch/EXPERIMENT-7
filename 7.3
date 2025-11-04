@@ -1,0 +1,225 @@
+# Full Real-Time Chat App (Server + React Client)
+# Run instructions (do these in two separate terminals):
+#
+# 1) Server
+# mkdir realtime-chat
+# cd realtime-chat
+# (create server files as below)
+# npm init -y
+# npm install express socket.io cors
+# node server.js
+#
+# 2) Client (in a separate folder)
+# npx create-react-app chat-client
+# cd chat-client
+# npm install socket.io-client
+# (replace src files with the client files below)
+# npm start
+#
+# ---------------------------
+# SERVER: save as realtime-chat/server.js
+# ---------------------------
+
+const express = require('express');
+const http = require('http');
+const cors = require('cors');
+const { Server } = require('socket.io');
+
+const app = express();
+app.use(cors());
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: '*' } });
+
+const PORT = 5000;
+
+let messages = []; // in-memory message history
+
+io.on('connection', (socket) => {
+  socket.emit('history', messages);
+
+  socket.on('join', (username) => {
+    socket.username = username || 'Anonymous';
+    socket.broadcast.emit('system', { message: `${socket.username} joined the chat` });
+  });
+
+  socket.on('message', (msg) => {
+    const chatMsg = {
+      id: Date.now() + Math.random().toString(36).slice(2, 9),
+      user: socket.username || 'Anonymous',
+      text: msg,
+      time: new Date().toISOString()
+    };
+    messages.push(chatMsg);
+    if (messages.length > 200) messages.shift();
+    io.emit('message', chatMsg);
+  });
+
+  socket.on('disconnect', () => {
+    if (socket.username) {
+      socket.broadcast.emit('system', { message: `${socket.username} left the chat` });
+    }
+  });
+});
+
+app.get('/', (req, res) => res.send({ status: 'Chat server running' }));
+
+server.listen(PORT, () => console.log(`Socket.io server running on http://localhost:${PORT}`));
+
+# ---------------------------
+# CLIENT: React app files (replace your chat-client/src/* with these)
+# ---------------------------
+
+# FILE: src/index.js
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App';
+import './index.css';
+const root = createRoot(document.getElementById('root'));
+root.render(<App />);
+
+# FILE: src/App.js
+import React, { useEffect, useState, useRef } from 'react';
+import { io } from 'socket.io-client';
+
+const SOCKET_URL = 'http://localhost:5000';
+
+function App() {
+  const [socket, setSocket] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [username, setUsername] = useState('');
+  const [nameSet, setNameSet] = useState(false);
+  const [message, setMessage] = useState('');
+  const [msgs, setMsgs] = useState([]);
+  const messagesRef = useRef(null);
+
+  useEffect(() => {
+    const s = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
+    setSocket(s);
+
+    s.on('connect', () => setConnected(true));
+    s.on('disconnect', () => setConnected(false));
+
+    s.on('history', (history) => setMsgs(history));
+    s.on('message', (m) => setMsgs((prev) => [...prev, m]));
+    s.on('system', (data) => setMsgs((prev) => [...prev, { id: Date.now(), user: 'System', text: data.message, time: new Date().toISOString() }]));
+
+    return () => {
+      s.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    }
+  }, [msgs]);
+
+  const setName = () => {
+    if (!username.trim()) return;
+    socket.emit('join', username.trim());
+    setNameSet(true);
+  };
+
+  const sendMessage = () => {
+    if (!message.trim()) return;
+    socket.emit('message', message.trim());
+    setMessage('');
+  };
+
+  const onKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      if (!nameSet) setName();
+      else sendMessage();
+    }
+  };
+
+  return (
+    <div style={styles.app}>
+      <div style={styles.header}>
+        <h2>🔴 Real-Time Chat</h2>
+        <div style={{ fontSize: 14 }}>{connected ? 'Connected' : 'Disconnected'}</div>
+      </div>
+
+      <div style={styles.container}>
+        <div style={styles.sidebar}>
+          <div style={{ marginBottom: 10 }}>
+            <input
+              placeholder="Enter your name"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyPress={onKeyPress}
+              disabled={nameSet}
+              style={styles.input}
+            />
+            <button onClick={setName} disabled={nameSet || !username.trim()} style={styles.btn}>
+              {nameSet ? 'Name set' : 'Set Name'}
+            </button>
+          </div>
+          <div style={{ fontSize: 13, color: '#555' }}>
+            <div><strong>Instructions</strong></div>
+            <div>1. Set a display name.</div>
+            <div>2. Type a message and press Enter or Send.</div>
+            <div>3. Open multiple windows to test real-time updates.</div>
+          </div>
+        </div>
+
+        <div style={styles.chat}>
+          <div style={styles.messages} ref={messagesRef}>
+            {msgs.map((m) => (
+              <div key={m.id} style={m.user === username ? styles.myMessage : styles.message}>
+                <div style={styles.meta}>
+                  <strong>{m.user}</strong>
+                  <span style={styles.time}>{new Date(m.time).toLocaleTimeString()}</span>
+                </div>
+                <div>{m.text}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={styles.composer}>
+            <input
+              placeholder={nameSet ? 'Type a message...' : 'Set your name first'}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyPress={(e) => { if (e.key === 'Enter') sendMessage(); }}
+              disabled={!nameSet}
+              style={{ ...styles.input, flex: 1 }}
+            />
+            <button onClick={sendMessage} disabled={!nameSet || !message.trim()} style={styles.btn}>
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  app: { fontFamily: 'Arial, sans-serif', padding: 20, maxWidth: 1000, margin: '0 auto' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  container: { display: 'flex', gap: 20 },
+  sidebar: { width: 260, border: '1px solid #eee', padding: 12, borderRadius: 8, height: 400 },
+  chat: { flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #eee', borderRadius: 8, height: 400 },
+  messages: { flex: 1, padding: 12, overflowY: 'auto', background: '#fafafa' },
+  message: { marginBottom: 10, padding: 8, borderRadius: 6, background: '#fff', border: '1px solid #eee' },
+  myMessage: { marginBottom: 10, padding: 8, borderRadius: 6, background: '#e6ffed', border: '1px solid #cde7d6', alignSelf: 'flex-end' },
+  meta: { display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, color: '#555' },
+  time: { marginLeft: 8, fontSize: 11, color: '#888' },
+  composer: { display: 'flex', gap: 8, padding: 12, borderTop: '1px solid #eee' },
+  input: { padding: '8px 10px', borderRadius: 6, border: '1px solid #ccc', outline: 'none' },
+  btn: { padding: '8px 12px', borderRadius: 6, border: 'none', background: '#1976d2', color: '#fff', cursor: 'pointer' }
+};
+
+export default App;
+
+# FILE: src/index.css
+html,body,#root { height: 100%; margin: 0; }
+body { background: #f4f6f8; }
+
+# ---------------------------
+# Notes:
+# - Start server first: node server.js
+# - Start React client (in chat-client folder): npm start
+# - Open multiple browser tabs at http://localhost:3000 to test real-time messaging.
+# - This code keeps messages in memory; for persistence, hook up a DB.
